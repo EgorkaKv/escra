@@ -163,13 +163,21 @@ USER_SLADKOEZHKA_ID=1002
 ответ вебхуку:
 
 ```
-git fetch + git merge --ff-only origin/<branch>  →  uv sync  →  systemctl restart escra
+git fetch + git merge --ff-only origin/<branch>  →  uv sync  →  systemd-run … systemctl restart escra
 ```
 
-`systemctl restart` — последняя команда: к этому моменту git pull и uv sync уже
-выполнены, поэтому даже когда systemd убивает cgroup со старым процессом (а
-внутри него — сам ещё выполняющийся `deploy.sh`), перезапуск уже поставлен в
-очередь и происходит независимо.
+Ключевой момент — **как** делается рестарт. `deploy.sh` запускается как дочерний
+процесс `escra`, то есть внутри cgroup сервиса `escra.service`. Обычный
+`systemctl restart escra` прямо из скрипта просит systemd остановить эту cgroup —
+и SIGTERM прилетает всей группе разом: и главному python-процессу, и самому
+`deploy.sh`, и запущенному им `systemctl`. Клиент рестарта умирает раньше, чем
+задача надёжно доедет до PID 1 → код подтянулся, но процесс не перезапустился.
+
+Поэтому рестарт вынесен в **отдельный transient-юнит** через
+`systemd-run --collect --no-block … systemctl restart escra`: его исполняет PID 1
+в своей cgroup, и снос cgroup `escra` его не задевает. `deploy.sh` тем временем
+спокойно завершается (`--no-block` возвращает управление сразу), а рестарт
+происходит независимо уже на подтянутом коде.
 
 Настройка:
 
