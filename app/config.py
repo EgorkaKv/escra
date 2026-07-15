@@ -51,5 +51,11 @@ class Settings(BaseSettings):
     dev_user_vesnushka_id: int = 1001
     dev_user_sladkoezhka_id: int = 1002
 
+    # --- Auto-deploy ---
+    # Secret configured on the GitHub webhook (Settings -> Webhooks -> Secret).
+    # Empty disables the /github-push endpoint entirely.
+    github_webhook_secret: str = ""
+    deploy_branch: str = "main"
+
 
 settings = Settings()

@@ -8,15 +8,17 @@ of the two of us reacted, without any separate login.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import json
 import logging
+import os
 import time
 from pathlib import Path
 from urllib.parse import parse_qsl
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -28,6 +30,9 @@ logger = logging.getLogger(__name__)
 
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
+
+_REPO_DIR = Path(__file__).resolve().parents[2]
+_DEPLOY_SCRIPT = _REPO_DIR / "deploy" / "deploy.sh"
 
 app = FastAPI(title="Escra — OLX Lviv")
 
@@ -144,3 +149,52 @@ async def api_get_criteria(user_id: int = Depends(current_user)):
 @app.post("/api/criteria")
 async def api_set_criteria(body: CriteriaBody, user_id: int = Depends(current_user)):
     return db.update_criteria(body.model_dump(exclude_none=True))
+
+
+def _verify_github_signature(body: bytes, signature: str) -> bool:
+    if not signature.startswith("sha256="):
+        return False
+    expected = hmac.new(settings.github_webhook_secret.encode(), body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(f"sha256={expected}", signature)
+
+
+async def _run_deploy() -> None:
+    proc = await asyncio.create_subprocess_exec(
+        "bash", str(_DEPLOY_SCRIPT),
+        cwd=str(_REPO_DIR),
+        env={**os.environ, "DEPLOY_BRANCH": settings.deploy_branch},
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+    output, _ = await proc.communicate()
+    logger.info(
+        "deploy.sh finished (rc=%s):\n%s", proc.returncode, output.decode(errors="replace")
+    )
+
+
+@app.post("/github-push")
+async def github_push(
+    request: Request,
+    x_hub_signature_256: str = Header(default=""),
+    x_github_event: str = Header(default=""),
+) -> dict:
+    if not settings.github_webhook_secret:
+        raise HTTPException(status_code=503, detail="webhook not configured")
+
+    body = await request.body()
+    if not _verify_github_signature(body, x_hub_signature_256):
+        raise HTTPException(status_code=401, detail="bad signature")
+
+    if x_github_event == "ping":
+        return {"ok": True, "pong": True}
+    if x_github_event != "push":
+        return {"ok": True, "skipped": f"event {x_github_event!r} ignored"}
+
+    payload = json.loads(body)
+    ref = payload.get("ref", "")
+    if ref != f"refs/heads/{settings.deploy_branch}":
+        return {"ok": True, "skipped": f"ref {ref!r} != {settings.deploy_branch}"}
+
+    logger.warning("GitHub push on %s — deploying", ref)
+    asyncio.create_task(_run_deploy())
+    return {"ok": True, "deploying": True}
