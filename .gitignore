@@ -1,3 +1,4 @@
 .env
 escra.db
 .venv
+__pycache__/

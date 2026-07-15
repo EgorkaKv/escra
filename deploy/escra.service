@@ -5,12 +5,12 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-# Adjust to the deploy user and clone path on the droplet.
-User=escra
-WorkingDirectory=~/escra
-EnvironmentFile=~/escra/.env
+# Running as root (matches how the repo was cloned on the droplet: /root/escra).
+User=root
+WorkingDirectory=/root/escra
+EnvironmentFile=/root/escra/.env
 # uv creates .venv on `uv sync`. Point straight at the venv interpreter.
-ExecStart=~/escra/.venv/bin/python -m app.main
+ExecStart=/root/escra/.venv/bin/python -m app.main
 Restart=always
 RestartSec=5
 
