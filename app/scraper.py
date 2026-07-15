@@ -54,28 +54,43 @@ def _passes(listing: Listing, criteria: dict[str, Any]) -> bool:
 async def scrape_once(app: Application | None = None, notify: bool = True) -> int:
     """Run one scrape cycle. Returns the count of newly stored listings."""
     criteria = await asyncio.to_thread(db.get_criteria)
+    logger.debug("Criteria: %s", criteria)
+
     client = OlxClient()
     try:
         listings = await client.fetch_recent()
     finally:
         await client.aclose()
+    logger.debug("Fetched %s listings total from OLX", len(listings))
 
     new_count = 0
+    skipped_filter = 0
+    skipped_exists = 0
+    skipped_race = 0
     for listing in listings:
         if not _passes(listing, criteria):
+            skipped_filter += 1
+            logger.debug("Listing %s filtered out by criteria", listing.external_id)
             continue
         if await asyncio.to_thread(db.listing_exists, listing.external_id):
+            skipped_exists += 1
+            logger.debug("Listing %s already in DB", listing.external_id)
             continue
         listing_id = await asyncio.to_thread(db.insert_listing, listing.to_row())
         if listing_id is None:
+            skipped_race += 1
             continue  # raced with another insert
         new_count += 1
+        logger.debug("Listing %s inserted as row id=%s", listing.external_id, listing_id)
         if notify and app is not None:
             row = await asyncio.to_thread(db.get_listing, listing_id)
             if row:
                 await bot.send_listing(app, listing_id, row)
 
-    logger.info("Scrape cycle done: %s new listings", new_count)
+    logger.info(
+        "Scrape cycle done: %s new listings (fetched=%s filtered=%s existing=%s raced=%s)",
+        new_count, len(listings), skipped_filter, skipped_exists, skipped_race,
+    )
     return new_count
 
 

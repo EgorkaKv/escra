@@ -51,10 +51,18 @@
       padding: 11px; border: none; border-radius: 10px;
       background: var(--tg-theme-button-color, #3390ec); color: #fff; font-size: 15px;
     }
+    .identity-picker {
+      display: flex; flex-direction: column; gap: 12px; max-width: 320px;
+      margin: 60px auto; padding: 0 16px;
+    }
+    .identity-picker button {
+      padding: 16px; border: none; border-radius: 12px; font-size: 16px; cursor: pointer;
+      background: var(--tg-theme-button-color, #3390ec); color: #fff;
+    }
   </style>
 </head>
 <body>
-  <header>
+  <header id="app-header" hidden>
     <div class="tabs">
       <button data-tab="new" class="active">Нові</button>
       <button data-tab="liked">Подобається</button>
@@ -68,16 +76,43 @@
 const tg = window.Telegram?.WebApp;
 tg?.ready(); tg?.expand();
 const INIT = tg?.initData || "";
-const myId = tg?.initDataUnsafe?.user?.id;
+const DEV_USER_KEY = "escra_dev_user_id";
+
+function devUserId() {
+  return INIT ? null : localStorage.getItem(DEV_USER_KEY);
+}
 
 async function api(path, opts = {}) {
   const res = await fetch(path, {
     ...opts,
-    headers: { "Content-Type": "application/json", "X-Telegram-Init-Data": INIT, ...(opts.headers||{}) },
+    headers: {
+      "Content-Type": "application/json",
+      "X-Telegram-Init-Data": INIT,
+      "X-Dev-User-Id": devUserId() || "",
+      ...(opts.headers||{}),
+    },
   });
   if (!res.ok) throw new Error("HTTP " + res.status);
   return res.json();
 }
+
+async function ensureIdentity() {
+  if (INIT || devUserId()) return true;
+  const { enabled, users } = await fetch("/api/dev-identities").then(r => r.json());
+  if (!enabled || !users.length) return true; // not in dev mode — let the real auth fail/succeed
+  document.getElementById("app-header").hidden = true;
+  document.getElementById("content").innerHTML = `<div class="identity-picker">
+    ${users.map(u => `<button onclick="pickIdentity(${u.id})">${esc(u.name)}</button>`).join("")}
+  </div>`;
+  return false;
+}
+
+function pickIdentity(id) {
+  localStorage.setItem(DEV_USER_KEY, String(id));
+  document.getElementById("app-header").hidden = false;
+  loadTab(currentTab);
+}
+window.pickIdentity = pickIdentity;
 
 const esc = s => (s||"").replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 const EMOJI = { like: "👍", hide: "🙈" };
@@ -180,7 +215,10 @@ document.querySelectorAll(".tabs button").forEach(btn => {
   };
 });
 
-loadTab("new");
+(async () => {
+  document.getElementById("app-header").hidden = false;
+  if (await ensureIdentity()) loadTab("new");
+})();
 </script>
 </body>
 </html>

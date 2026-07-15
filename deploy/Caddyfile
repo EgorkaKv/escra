@@ -4,6 +4,6 @@
 # Install:  sudo cp deploy/Caddyfile /etc/caddy/Caddyfile && sudo systemctl reload caddy
 # Replace escra.example.com with your real domain (DNS A record -> droplet IP).
 
-escra.example.com {
+escra.kvasenko.com {
     reverse_proxy 127.0.0.1:8000
 }

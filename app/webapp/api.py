@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import logging
 import time
 from pathlib import Path
 from urllib.parse import parse_qsl
@@ -22,6 +23,8 @@ from pydantic import BaseModel
 
 from .. import db
 from ..config import settings
+
+logger = logging.getLogger(__name__)
 
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
@@ -65,7 +68,22 @@ def verify_init_data(init_data: str) -> int:
         raise HTTPException(status_code=401, detail="no user in initData")
 
 
-async def current_user(x_telegram_init_data: str = Header(default="")) -> int:
+_DEV_USER_IDS = {settings.dev_user_vesnushka_id, settings.dev_user_sladkoezhka_id}
+
+
+async def current_user(
+    x_telegram_init_data: str = Header(default=""),
+    x_dev_user_id: str = Header(default=""),
+) -> int:
+    if settings.dev_no_auth:
+        try:
+            dev_user_id = int(x_dev_user_id)
+        except ValueError:
+            raise HTTPException(status_code=401, detail="missing X-Dev-User-Id")
+        if dev_user_id not in _DEV_USER_IDS:
+            raise HTTPException(status_code=401, detail="unknown dev user id")
+        logger.warning("DEV_NO_AUTH is on — skipping initData verification (user=%s)", dev_user_id)
+        return dev_user_id
     return verify_init_data(x_telegram_init_data)
 
 
@@ -86,6 +104,21 @@ class CriteriaBody(BaseModel):
 async def index() -> HTMLResponse:
     html = (_TEMPLATES_DIR / "index.html").read_text(encoding="utf-8")
     return HTMLResponse(html)
+
+
+@app.get("/api/dev-identities")
+async def api_dev_identities() -> dict:
+    """Public: lets the browser offer an identity picker when opened outside
+    Telegram. Returns nothing useful unless DEV_NO_AUTH is on."""
+    if not settings.dev_no_auth:
+        return {"enabled": False, "users": []}
+    return {
+        "enabled": True,
+        "users": [
+            {"id": settings.dev_user_vesnushka_id, "name": "Я Веснушка"},
+            {"id": settings.dev_user_sladkoezhka_id, "name": "Я Сладкоєжка"},
+        ],
+    }
 
 
 @app.get("/api/listings")

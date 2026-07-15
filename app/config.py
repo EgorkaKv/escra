@@ -41,5 +41,15 @@ class Settings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = 8000
 
+    # --- Dev ---
+    # Skip Telegram initData verification, so the web app can be opened directly
+    # in a browser (no Telegram, no HTTPS tunnel). The browser picks one of the
+    # two fixed identities below on first load (see templates/index.html) and
+    # sends its id back in X-Dev-User-Id on every request.
+    # NEVER enable this in production — it removes all API authentication.
+    dev_no_auth: bool = False
+    dev_user_vesnushka_id: int = 1001
+    dev_user_sladkoezhka_id: int = 1002
+
 
 settings = Settings()

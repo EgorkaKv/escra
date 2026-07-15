@@ -32,8 +32,12 @@ DEFAULT_HEADERS = {
     "Accept": "application/json, text/plain, */*",
 }
 
-ROOMS_MAP = {"one": 1, "two": 2, "three": 3, "four": 4}  # "four" = 4-or-more
-_FLOOR_RE = re.compile(r"floor_(\d+)")
+ROOMS_MAP = {
+    "odnokomnatnye": 1,
+    "dvuhkomnatnye": 2,
+    "trehkomnatnye": 3,
+    "chetyrehkomnatnye": 4,  # "4+" — actual API has no separate 5-or-more bucket
+}
 _PAGE_SIZE = 40
 SLEEP_BETWEEN_PAGES = 2.0
 
@@ -102,12 +106,9 @@ def parse_offer(offer: dict[str, Any], max_photos: int) -> Listing | None:
     location = offer.get("location") or {}
     contact = offer.get("contact") or {}
 
-    rooms_key = (params.get("rooms") or {}).get("key")
-    area = _parse_int((params.get("m") or {}).get("key"))
-
-    floor = None
-    if match := _FLOOR_RE.match((params.get("floor_select") or {}).get("key") or ""):
-        floor = int(match.group(1))
+    rooms_key = (params.get("number_of_rooms_string") or {}).get("key")
+    area = _parse_int((params.get("total_area") or {}).get("key"))
+    floor = _parse_int((params.get("floor") or {}).get("key"))
 
     photos: list[str] = []
     for photo in offer.get("photos") or []:
@@ -165,8 +166,12 @@ class OlxClient:
             },
         )
         resp.raise_for_status()
+        logger.debug("OLX response status=%s url=%s", resp.status_code, resp.request.url)
         data = resp.json()
-        return data.get("data") or []
+        offers = data.get("data") or []
+        logger.debug("OLX raw payload keys=%s total_count=%s offers_in_page=%s",
+                      list(data.keys()), data.get("total_count"), len(offers))
+        return offers
 
     async def fetch_recent(self, page_limit: int | None = None) -> list[Listing]:
         """Walk newest-first pages and return parsed listings."""
@@ -186,8 +191,15 @@ class OlxClient:
 
             for offer in offers:
                 listing = parse_offer(offer, settings.max_photos)
-                if listing is not None:
-                    listings.append(listing)
+                if listing is None:
+                    logger.debug("OLX offer %s dropped by parse_offer (no id)", offer.get("id"))
+                    continue
+                logger.debug(
+                    "OLX parsed offer id=%s rooms=%s price=%s %s floor=%s title=%r",
+                    listing.external_id, listing.rooms, listing.price_value,
+                    listing.price_currency, listing.floor, listing.title[:60],
+                )
+                listings.append(listing)
 
             if len(offers) < _PAGE_SIZE:
                 break
