@@ -111,6 +111,18 @@ async def index() -> HTMLResponse:
     return HTMLResponse(html)
 
 
+@app.get("/health")
+async def health() -> dict:
+    """Public, unauthenticated: polled by scripts/healthcheck.py (a separate
+    process) to decide whether to page someone. Touches the DB so a locked or
+    corrupt file counts as down, not just a dead event loop."""
+    try:
+        await asyncio.to_thread(db.get_criteria)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"db unavailable: {exc}")
+    return {"status": "ok"}
+
+
 @app.get("/api/dev-identities")
 async def api_dev_identities() -> dict:
     """Public: lets the browser offer an identity picker when opened outside

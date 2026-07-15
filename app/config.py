@@ -57,5 +57,13 @@ class Settings(BaseSettings):
     github_webhook_secret: str = ""
     deploy_branch: str = "main"
 
+    # --- Health-check watchdog ---
+    # Real Telegram user id to DM when scripts/healthcheck.py finds /health down
+    # (and again when it recovers). That person must have messaged the bot at
+    # least once — Telegram won't let a bot open a DM first. Find the id via
+    # https://api.telegram.org/bot<token>/getUpdates after they do. 0 disables
+    # alerting (the watchdog still runs and logs, it just won't message anyone).
+    alert_chat_id: int = 0
+
 
 settings = Settings()

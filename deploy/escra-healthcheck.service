@@ -1,0 +1,9 @@
+[Unit]
+Description=Escra health-check watchdog (one-shot, triggered by escra-healthcheck.timer)
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/escra
+EnvironmentFile=/root/escra/.env
+ExecStart=/root/escra/.venv/bin/python -m scripts.healthcheck
