@@ -8,6 +8,7 @@ from app.main import main as _amain
 import asyncio
 
 
+
 def main() -> None:
     asyncio.run(_amain())
 
