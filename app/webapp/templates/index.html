@@ -82,6 +82,10 @@
       padding: 11px; border: none; border-radius: 10px;
       background: var(--tg-theme-button-color, #3390ec); color: #fff; font-size: 15px;
     }
+    .version-footer {
+      margin-top: 24px; text-align: center; font-size: 12px; opacity: .5;
+      font-family: ui-monospace, monospace;
+    }
     .identity-picker {
       display: flex; flex-direction: column; gap: 12px; max-width: 320px;
       margin: 60px auto; padding: 0 16px;
@@ -329,7 +333,11 @@ async function loadSettings() {
       </select>
     </label>
     <button type="submit">Зберегти</button>
-  </form>`;
+  </form>
+  <div class="version-footer" id="version-footer"></div>`;
+  fetch("/api/version").then(r => r.json()).then(v => {
+    document.getElementById("version-footer").textContent = `Версія: ${v.commit}`;
+  }).catch(() => {});
 }
 
 async function saveSettings(ev) {

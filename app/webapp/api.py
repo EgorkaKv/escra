@@ -14,6 +14,7 @@ import hmac
 import json
 import logging
 import os
+import subprocess
 import time
 from pathlib import Path
 from urllib.parse import parse_qsl
@@ -38,6 +39,23 @@ app = FastAPI(title="Escra — OLX Lviv")
 
 # Reject initData older than this to limit replay of a captured payload.
 _MAX_AUTH_AGE = 24 * 3600
+
+
+def _read_deployed_commit() -> str:
+    """Short SHA of whatever's checked out in the repo right now. Read once at
+    import time — a new deploy restarts the process (see deploy.sh), so this
+    stays accurate without re-shelling out on every /health poll."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=_REPO_DIR, capture_output=True, text=True, timeout=5, check=True,
+        )
+        return result.stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+
+
+DEPLOYED_COMMIT = _read_deployed_commit()
 
 
 def verify_init_data(init_data: str) -> int:
@@ -120,7 +138,13 @@ async def health() -> dict:
         await asyncio.to_thread(db.get_criteria)
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"db unavailable: {exc}")
-    return {"status": "ok"}
+    return {"status": "ok", "commit": DEPLOYED_COMMIT}
+
+
+@app.get("/api/version")
+async def api_version() -> dict:
+    """Public: lets the frontend show which commit is currently deployed."""
+    return {"commit": DEPLOYED_COMMIT}
 
 
 @app.get("/api/dev-identities")
