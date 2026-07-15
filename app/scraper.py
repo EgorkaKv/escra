@@ -16,14 +16,24 @@ from telegram.ext import Application
 from . import bot, db
 from .config import settings
 from .olx import Listing, OlxClient
+from .rates import get_rate
 
 logger = logging.getLogger(__name__)
 
 
-def _passes(listing: Listing, criteria: dict[str, Any]) -> bool:
+def _to_uah(value: int | float | None, currency: str | None, rates: dict[str, float]) -> float | None:
+    if value is None:
+        return None
+    rate = rates.get(currency or "UAH")
+    return value * rate if rate is not None else None
+
+
+def _passes(listing: Listing, criteria: dict[str, Any], rates: dict[str, float]) -> bool:
     """Apply the editable search criteria. Missing data errs toward exclusion
-    for hard filters (rooms), and toward inclusion when we can't compare (price
-    in a different currency)."""
+    for hard filters (rooms). Price is always compared in UAH — `rates` holds
+    UAH-per-unit for whatever currencies showed up this cycle — so a $700
+    listing against a 16000 UAH cap is rejected instead of silently let through
+    just because the currencies differ."""
     rooms_min = criteria.get("rooms_min")
     rooms_max = criteria.get("rooms_max")
     if rooms_min is not None or rooms_max is not None:
@@ -35,13 +45,14 @@ def _passes(listing: Listing, criteria: dict[str, Any]) -> bool:
             return False
 
     price_max = criteria.get("price_max")
-    if price_max and listing.price_value is not None:
-        same_currency = (
-            not criteria.get("price_currency")
-            or listing.price_currency == criteria.get("price_currency")
-        )
-        if same_currency and listing.price_value > price_max:
-            return False
+    if price_max:
+        price_max_uah = _to_uah(price_max, criteria.get("price_currency"), rates)
+        listing_price_uah = _to_uah(listing.price_value, listing.price_currency, rates)
+        if price_max_uah is not None and listing_price_uah is not None:
+            if listing_price_uah > price_max_uah:
+                return False
+        # Rate unavailable for one side (NBU fetch failed, no cached rate yet) —
+        # can't compare, so don't block the listing on price alone.
 
     # "не перший поверх": treat ground (0) and 1st as first floor.
     if criteria.get("exclude_first_floor") and listing.floor is not None:
@@ -56,6 +67,13 @@ async def scrape_once(app: Application | None = None, notify: bool = True) -> in
     criteria = await asyncio.to_thread(db.get_criteria)
     logger.debug("Criteria: %s", criteria)
 
+    rates = {"UAH": 1.0}
+    for currency in ("USD", "EUR"):
+        rate = await get_rate(currency)
+        if rate is not None:
+            rates[currency] = rate
+    logger.debug("Exchange rates (UAH per unit): %s", rates)
+
     client = OlxClient()
     try:
         listings = await client.fetch_recent()
@@ -68,7 +86,7 @@ async def scrape_once(app: Application | None = None, notify: bool = True) -> in
     skipped_exists = 0
     skipped_race = 0
     for listing in listings:
-        if not _passes(listing, criteria):
+        if not _passes(listing, criteria, rates):
             skipped_filter += 1
             logger.debug("Listing %s filtered out by criteria", listing.external_id)
             continue
