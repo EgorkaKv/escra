@@ -137,11 +137,13 @@
 <script>
 const tg = window.Telegram?.WebApp;
 tg?.ready(); tg?.expand();
+// Telegram supplies signed initData; a plain browser has none. That single
+// check picks the mode — no server flag involved.
 const INIT = tg?.initData || "";
-const DEV_USER_KEY = "escra_dev_user_id";
+const USER_KEY = "escra_user_id";
 
-function devUserId() {
-  return INIT ? null : localStorage.getItem(DEV_USER_KEY);
+function webUserId() {
+  return INIT ? null : localStorage.getItem(USER_KEY);
 }
 
 async function api(path, opts = {}) {
@@ -150,7 +152,7 @@ async function api(path, opts = {}) {
     headers: {
       "Content-Type": "application/json",
       "X-Telegram-Init-Data": INIT,
-      "X-Dev-User-Id": devUserId() || "",
+      "X-User-Id": webUserId() || "",
       ...(opts.headers||{}),
     },
   });
@@ -159,18 +161,20 @@ async function api(path, opts = {}) {
 }
 
 async function ensureIdentity() {
-  if (INIT || devUserId()) return true;
-  const { enabled, users } = await fetch("/api/dev-identities").then(r => r.json());
-  if (!enabled || !users.length) return true; // not in dev mode — let the real auth fail/succeed
+  // Inside Telegram, or a role already chosen in this browser — proceed.
+  if (INIT || webUserId()) return true;
+  // Plain browser, first visit — ask who's looking; the choice sticks in localStorage.
+  const { users } = await fetch("/api/identities").then(r => r.json());
   document.getElementById("app-header").hidden = true;
   document.getElementById("content").innerHTML = `<div class="identity-picker">
+    <div class="empty" style="margin:0 0 8px">Хто ти?</div>
     ${users.map(u => `<button onclick="pickIdentity(${u.id})">${esc(u.name)}</button>`).join("")}
   </div>`;
   return false;
 }
 
 function pickIdentity(id) {
-  localStorage.setItem(DEV_USER_KEY, String(id));
+  localStorage.setItem(USER_KEY, String(id));
   document.getElementById("app-header").hidden = false;
   loadTab(currentTab);
 }
@@ -334,6 +338,7 @@ async function loadSettings() {
     </label>
     <button type="submit">Зберегти</button>
   </form>
+  ${webUserId() ? `<div class="version-footer"><a href="#" onclick="changeRole(event)">Змінити роль</a></div>` : ""}
   <div class="version-footer" id="version-footer"></div>`;
   fetch("/api/version").then(r => r.json()).then(v => {
     document.getElementById("version-footer").textContent = `Версія: ${v.commit}`;
@@ -352,6 +357,13 @@ async function saveSettings(ev) {
   tg?.showAlert?.("Збережено");
 }
 window.saveSettings = saveSettings;
+
+function changeRole(ev) {
+  ev.preventDefault();
+  localStorage.removeItem(USER_KEY);
+  ensureIdentity();
+}
+window.changeRole = changeRole;
 
 document.querySelectorAll(".tabs button").forEach(btn => {
   btn.onclick = () => {

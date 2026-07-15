@@ -91,23 +91,29 @@ def verify_init_data(init_data: str) -> int:
         raise HTTPException(status_code=401, detail="no user in initData")
 
 
-_DEV_USER_IDS = {settings.dev_user_vesnushka_id, settings.dev_user_sladkoezhka_id}
+_WEB_USER_IDS = {settings.user_vesnushka_id, settings.user_sladkoezhka_id}
 
 
 async def current_user(
     x_telegram_init_data: str = Header(default=""),
-    x_dev_user_id: str = Header(default=""),
+    x_user_id: str = Header(default=""),
 ) -> int:
-    if settings.dev_no_auth:
-        try:
-            dev_user_id = int(x_dev_user_id)
-        except ValueError:
-            raise HTTPException(status_code=401, detail="missing X-Dev-User-Id")
-        if dev_user_id not in _DEV_USER_IDS:
-            raise HTTPException(status_code=401, detail="unknown dev user id")
-        logger.warning("DEV_NO_AUTH is on — skipping initData verification (user=%s)", dev_user_id)
-        return dev_user_id
-    return verify_init_data(x_telegram_init_data)
+    """Resolve the caller's user id, in either of the two supported modes.
+
+    Telegram Web App: `initData` is present and signed -> verify via HMAC.
+    Plain browser: no initData -> trust the picked role id (X-User-Id), which
+    must be one of the two configured identities. The mode is decided purely by
+    the presence of initData, so both work at once without any flag.
+    """
+    if x_telegram_init_data:
+        return verify_init_data(x_telegram_init_data)
+    try:
+        uid = int(x_user_id)
+    except ValueError:
+        raise HTTPException(status_code=401, detail="missing identity")
+    if uid not in _WEB_USER_IDS:
+        raise HTTPException(status_code=401, detail="unknown identity")
+    return uid
 
 
 class ReactBody(BaseModel):
@@ -147,17 +153,15 @@ async def api_version() -> dict:
     return {"commit": DEPLOYED_COMMIT}
 
 
-@app.get("/api/dev-identities")
-async def api_dev_identities() -> dict:
-    """Public: lets the browser offer an identity picker when opened outside
-    Telegram. Returns nothing useful unless DEV_NO_AUTH is on."""
-    if not settings.dev_no_auth:
-        return {"enabled": False, "users": []}
+@app.get("/api/identities")
+async def api_identities() -> dict:
+    """Public: the two roles the browser identity picker offers when the page is
+    opened outside Telegram. Inside Telegram this is ignored — initData carries
+    the real user."""
     return {
-        "enabled": True,
         "users": [
-            {"id": settings.dev_user_vesnushka_id, "name": "Я Веснушка"},
-            {"id": settings.dev_user_sladkoezhka_id, "name": "Я Сладкоєжка"},
+            {"id": settings.user_vesnushka_id, "name": "Я Веснушка"},
+            {"id": settings.user_sladkoezhka_id, "name": "Я Сладкоєжка"},
         ],
     }
 

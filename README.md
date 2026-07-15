@@ -48,7 +48,7 @@ app/
   webapp/
     api.py           FastAPI роуты, HMAC-валидация initData, /health, /github-push
     templates/index.html   одностраничный Web App (инлайн JS): карусель фото,
-                            fullscreen-лайтбокс, dev-режим без Telegram
+                            fullscreen-лайтбокс, режим браузера без Telegram
 scripts/
   healthcheck.py     отдельный процесс: пингует /health, шлёт алерт в Telegram
 deploy/
@@ -73,29 +73,37 @@ uv run python -m app.main
 uv run python -c "import asyncio; from app import db, scraper; db.init_db(); print(asyncio.run(scraper.scrape_once(notify=False)))"
 ```
 
-### Открыть Web App без Telegram (dev-режим)
+### Два режима: Telegram и браузер (одновременно, без флага)
 
-По умолчанию `/api/*` требует заголовок `X-Telegram-Init-Data`, который
-подставляет `telegram-web-app.js` только когда страница открыта изнутри
-Telegram (кнопка Web App). Открытие `http://127.0.0.1:8000` в обычном браузере
-без этого даёт `401`.
+Приложение работает и внутри Telegram, и в обычном браузере — режим выбирается
+сам по каждому запросу, без переключателей в `.env`:
 
-Чтобы работать с интерфейсом локально без Telegram, включите в `.env`:
+- **Есть `initData`** (страницу открыли кнопкой Web App внутри Telegram) —
+  `telegram-web-app.js` подставляет подписанный `X-Telegram-Init-Data`, сервер
+  проверяет его HMAC и берёт настоящий `user.id`.
+- **Нет `initData`** (открыли, например, `http://127.0.0.1:8000` или
+  `https://<домен>` прямо в браузере) — страница показывает экран выбора роли:
+  «Я Веснушка» / «Я Сладкоєжка». Выбор сохраняется в `localStorage` и шлётся в
+  заголовке `X-User-Id` на каждый запрос. Сменить роль — вкладка «Настройки» →
+  «Змінити роль».
+
+Роли задаются в `.env`:
 
 ```
-DEV_NO_AUTH=true
-DEV_USER_VESNUSHKA_ID=1001
-DEV_USER_SLADKOEZHKA_ID=1002
+USER_VESNUSHKA_ID=1001
+USER_SLADKOEZHKA_ID=1002
 ```
 
-При первом открытии страница без `initData` покажет экран выбора: «Я Веснушка» /
-«Я Сладкоєжка». Выбор сохраняется в `localStorage` браузера и дальше шлётся в
-заголовке `X-Dev-User-Id` на каждый запрос — так лайки/скрытия и в dev-режиме
-привязываются к конкретному человеку. Внутри Telegram (когда есть настоящий
-`initData`) всё работает как раньше, через HMAC-проверку.
+**Важно:** чтобы лайки/скрытия, сделанные в браузере и в Telegram, считались за
+**одного** человека, поставьте здесь **настоящие Telegram user id** каждого из
+вас (узнать — как `ALERT_CHAT_ID` ниже, через `getUpdates`). Иначе один и тот же
+человек будет двумя разными пользователями в базе.
 
-**`DEV_NO_AUTH=true` на проде включать нельзя** — это отключает всю
-аутентификацию API.
+**Безопасность:** браузерный путь не подписан — любой, кто откроет сайт и
+пришлёт один из этих id в `X-User-Id`, сможет читать/лайкать/менять критерии.
+Для личного инструмента на двоих это ок; не используйте id, которые считаете
+секретом. Если понадобится закрыть — можно добавить общий пароль/токен на
+браузерный путь (сейчас его нет).
 
 ## Настройка Telegram
 
@@ -138,8 +146,7 @@ DEV_USER_SLADKOEZHKA_ID=1002
 | `PAGE_LIMIT` | страниц OLX за цикл (по 40) | `3` |
 | `MAX_PHOTOS` | фото в карточке | `5` |
 | `HOST` / `PORT` | адрес uvicorn (за Caddy) | `127.0.0.1` / `8000` |
-| `DEV_NO_AUTH` | пропускать проверку initData (см. «dev-режим» выше) | `false` |
-| `DEV_USER_VESNUSHKA_ID` / `DEV_USER_SLADKOEZHKA_ID` | синтетические id для dev-picker'а в браузере | `1001` / `1002` |
+| `USER_VESNUSHKA_ID` / `USER_SLADKOEZHKA_ID` | id ролей для браузерного режима; ставьте настоящие Telegram id (см. «Два режима» выше) | `1001` / `1002` |
 | `GITHUB_WEBHOOK_SECRET` | секрет вебхука GitHub, пусто = `/github-push` выключен | — |
 | `DEPLOY_BRANCH` | ветка, пуш в которую триггерит автодеплой | `main` |
 | `ALERT_CHAT_ID` | настоящий Telegram user id, куда `healthcheck.py` шлёт алерты | `0` (алерты выключены) |
@@ -194,9 +201,8 @@ git fetch + git merge --ff-only origin/<branch>  →  uv sync  →  systemctl re
   без зависимости от `python-telegram-bot`) в приватный чат с
   `ALERT_CHAT_ID`.
 
-`ALERT_CHAT_ID` — это **настоящий** Telegram user id получателя алертов, не
-`DEV_USER_*_ID` из dev-режима (те синтетические и ни на что в Telegram не
-указывают). Получатель должен хотя бы раз написать боту в личку — иначе бот не
+`ALERT_CHAT_ID` — это **настоящий** Telegram user id получателя алертов.
+Получатель должен хотя бы раз написать боту в личку — иначе бот не
 может первым открыть DM. Узнать id: после того как он напишет,
 откройте `https://api.telegram.org/bot<token>/getUpdates` и возьмите `message.from.id`.
 

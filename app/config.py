@@ -41,15 +41,22 @@ class Settings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = 8000
 
-    # --- Dev ---
-    # Skip Telegram initData verification, so the web app can be opened directly
-    # in a browser (no Telegram, no HTTPS tunnel). The browser picks one of the
-    # two fixed identities below on first load (see templates/index.html) and
-    # sends its id back in X-Dev-User-Id on every request.
-    # NEVER enable this in production — it removes all API authentication.
-    dev_no_auth: bool = False
-    dev_user_vesnushka_id: int = 1001
-    dev_user_sladkoezhka_id: int = 1002
+    # --- Web (browser) identities ---
+    # The app works both inside Telegram (authenticated via signed initData) and
+    # in a plain browser. There's no flag: the mode is chosen per request by
+    # whether initData is present. In a browser there is no initData, so the page
+    # shows a role picker and the chosen id is sent in the X-User-Id header.
+    #
+    # Set these to each person's REAL Telegram user id so that reactions made in
+    # the browser and inside Telegram count as the SAME person (otherwise the DB
+    # would hold two separate identities per person). Find an id via getUpdates
+    # after they DM the bot.
+    #
+    # SECURITY: the browser path is unsigned — anyone who reaches the site and
+    # sends one of these two ids in X-User-Id can read/react/edit criteria. Fine
+    # for a private two-person tool; do not expose ids you consider secret.
+    user_vesnushka_id: int = 1001
+    user_sladkoezhka_id: int = 1002
 
     # --- Auto-deploy ---
     # Secret configured on the GitHub webhook (Settings -> Webhooks -> Secret).
