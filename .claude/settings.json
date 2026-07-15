@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "PowerShell(uv add \"python-telegram-bot>=21\" httpx \"pydantic-settings\" jinja2 python-multipart)",
-      "Bash(uv run python -c ' *)"
+      "Bash(uv run python -c ' *)",
+      "Bash(uv run *)"
     ]
   }
 }

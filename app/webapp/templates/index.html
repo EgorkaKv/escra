@@ -12,20 +12,51 @@
       margin: 0; font-family: -apple-system, system-ui, sans-serif;
       background: var(--tg-theme-bg-color, #fff); color: var(--tg-theme-text-color, #111);
     }
-    header { position: sticky; top: 0; background: inherit; padding: 8px; z-index: 5; }
+    /* Keep the layout phone-shaped even on a wide desktop browser. */
+    header, main { max-width: 480px; margin: 0 auto; }
+    @media (min-width: 480px) {
+      body { background: var(--tg-theme-secondary-bg-color, #f2f2f2); }
+      header, main {
+        background: var(--tg-theme-bg-color, #fff);
+        box-shadow: 0 0 0 1px rgba(128,128,128,.15);
+      }
+    }
+    header { position: sticky; top: 0; padding: 8px; z-index: 5; }
     .tabs { display: flex; gap: 6px; }
     .tabs button {
       flex: 1; padding: 10px 4px; border: none; border-radius: 10px; font-size: 14px;
       background: var(--tg-theme-secondary-bg-color, #eee); color: inherit; cursor: pointer;
     }
     .tabs button.active { background: var(--tg-theme-button-color, #3390ec); color: #fff; }
-    main { padding: 8px; }
+    main { padding: 8px; min-height: 100vh; }
     .card {
       border: 1px solid rgba(128,128,128,.25); border-radius: 14px; overflow: hidden;
       margin-bottom: 14px;
     }
-    .photos { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; }
-    .photos img { height: 200px; scroll-snap-align: start; flex: 0 0 auto; object-fit: cover; }
+    .carousel {
+      position: relative; display: flex; overflow-x: auto; scroll-snap-type: x mandatory;
+      scrollbar-width: none; -webkit-overflow-scrolling: touch;
+    }
+    .carousel::-webkit-scrollbar { display: none; }
+    .carousel img {
+      width: 100%; height: 220px; scroll-snap-align: start; flex: 0 0 100%;
+      object-fit: cover; cursor: pointer;
+    }
+    .dots {
+      position: absolute; bottom: 8px; left: 0; right: 0; display: flex; justify-content: center;
+      gap: 5px; pointer-events: none;
+    }
+    .dots span {
+      width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,.5);
+    }
+    .dots span.active { background: #fff; }
+    .car-nav {
+      position: absolute; top: 50%; transform: translateY(-50%); z-index: 2;
+      border: none; border-radius: 50%; width: 30px; height: 30px; font-size: 16px;
+      line-height: 1; cursor: pointer; background: rgba(0,0,0,.35); color: #fff;
+    }
+    .car-prev { left: 8px; }
+    .car-next { right: 8px; }
     .body { padding: 10px 12px; }
     .price { font-size: 18px; font-weight: 700; }
     .title { margin: 4px 0; }
@@ -59,6 +90,26 @@
       padding: 16px; border: none; border-radius: 12px; font-size: 16px; cursor: pointer;
       background: var(--tg-theme-button-color, #3390ec); color: #fff;
     }
+    .lightbox {
+      position: fixed; inset: 0; background: #000; z-index: 50;
+      display: flex; align-items: center; justify-content: center;
+      overflow-x: auto; scroll-snap-type: x mandatory;
+    }
+    .lightbox[hidden] { display: none; }
+    .lightbox img {
+      width: 100%; height: 100%; flex: 0 0 100%; scroll-snap-align: start; object-fit: contain;
+    }
+    .lightbox .lb-close, .lightbox .lb-prev, .lightbox .lb-next {
+      position: fixed; z-index: 51; border: none; background: rgba(0,0,0,.4); color: #fff;
+      width: 40px; height: 40px; border-radius: 50%; font-size: 18px; cursor: pointer;
+    }
+    .lightbox .lb-close { top: 14px; right: 14px; }
+    .lightbox .lb-prev { top: 50%; left: 10px; transform: translateY(-50%); }
+    .lightbox .lb-next { top: 50%; right: 10px; transform: translateY(-50%); }
+    .lightbox .lb-counter {
+      position: fixed; top: 18px; left: 50%; transform: translateX(-50%); z-index: 51;
+      color: #fff; font-size: 13px; background: rgba(0,0,0,.4); padding: 3px 10px; border-radius: 999px;
+    }
   </style>
 </head>
 <body>
@@ -71,6 +122,13 @@
     </div>
   </header>
   <main id="content"><div class="empty">Завантаження…</div></main>
+
+  <div id="lightbox" class="lightbox" hidden>
+    <span class="lb-counter" id="lb-counter"></span>
+    <button class="lb-close" onclick="closeLightbox()">✕</button>
+    <button class="lb-prev" onclick="lightboxStep(-1)">‹</button>
+    <button class="lb-next" onclick="lightboxStep(1)">›</button>
+  </div>
 
 <script>
 const tg = window.Telegram?.WebApp;
@@ -123,8 +181,40 @@ function partnerBadge(item) {
     .map(r => `<span class="badge">${EMOJI[r.reaction]||"?"} партнер</span>`).join("");
 }
 
+const PHOTOS_BY_ID = {};
+
+function carouselHTML(item) {
+  const urls = item.image_urls || [];
+  PHOTOS_BY_ID[item.id] = urls;
+  if (!urls.length) return "";
+  const imgs = urls.map((u, i) =>
+    `<img src="${esc(u)}" loading="lazy" onclick="openLightbox(${item.id}, ${i})">`
+  ).join("");
+  if (urls.length === 1) return `<div class="carousel">${imgs}</div>`;
+  const dots = `<div class="dots">${urls.map((_, i) => `<span data-i="${i}" class="${i===0?"active":""}"></span>`).join("")}</div>`;
+  const nav = `
+    <button class="car-nav car-prev" onclick="carouselStep(this, -1)">‹</button>
+    <button class="car-nav car-next" onclick="carouselStep(this, 1)">›</button>`;
+  return `<div class="carousel" onscroll="onCarouselScroll(this)">${imgs}${dots}${nav}</div>`;
+}
+
+function carouselStep(btn, delta) {
+  const el = btn.parentElement;
+  const imgCount = el.querySelectorAll("img").length;
+  const index = Math.round(el.scrollLeft / el.clientWidth) + delta;
+  const clamped = Math.max(0, Math.min(imgCount - 1, index));
+  el.scrollTo({ left: clamped * el.clientWidth, behavior: "smooth" });
+}
+window.carouselStep = carouselStep;
+
+function onCarouselScroll(el) {
+  const index = Math.round(el.scrollLeft / el.clientWidth);
+  const dots = el.querySelector(".dots");
+  if (!dots) return;
+  dots.querySelectorAll("span").forEach(d => d.classList.toggle("active", +d.dataset.i === index));
+}
+
 function cardHTML(item) {
-  const photos = (item.image_urls||[]).map(u => `<img src="${esc(u)}" loading="lazy">`).join("");
   const meta = [
     item.rooms ? item.rooms + " кімн." : null,
     item.area ? Math.round(item.area) + " м²" : null,
@@ -132,7 +222,7 @@ function cardHTML(item) {
   ].filter(Boolean).join(" · ");
   const owner = item.is_business ? "🏢 Агенція" : "👤 Власник";
   return `<div class="card">
-    ${photos ? `<div class="photos">${photos}</div>` : ""}
+    ${carouselHTML(item)}
     <div class="body">
       <div class="price">${item.price_value||"?"} ${esc(item.price_currency||"")}</div>
       <div class="title">${esc(item.title||"")}</div>
@@ -146,6 +236,54 @@ function cardHTML(item) {
     </div>
   </div>`;
 }
+
+let lbPhotos = [];
+
+function openLightbox(id, index) {
+  lbPhotos = PHOTOS_BY_ID[id] || [];
+  if (!lbPhotos.length) return;
+  const lb = document.getElementById("lightbox");
+  lb.querySelectorAll("img").forEach(img => img.remove());
+  lbPhotos.forEach(url => {
+    const img = document.createElement("img");
+    img.src = url;
+    img.onclick = closeLightbox;
+    lb.appendChild(img);
+  });
+  lb.hidden = false;
+  lb.onscroll = () => updateLbCounter(Math.round(lb.scrollLeft / lb.clientWidth));
+  scrollLbTo(index, false);
+  updateLbCounter(index);
+}
+window.openLightbox = openLightbox;
+
+function scrollLbTo(index, smooth = true) {
+  const lb = document.getElementById("lightbox");
+  lb.scrollTo({ left: index * lb.clientWidth, behavior: smooth ? "smooth" : "auto" });
+}
+
+function lightboxStep(delta) {
+  const lb = document.getElementById("lightbox");
+  const cur = Math.round(lb.scrollLeft / lb.clientWidth);
+  scrollLbTo(Math.max(0, Math.min(lbPhotos.length - 1, cur + delta)));
+}
+window.lightboxStep = lightboxStep;
+
+function updateLbCounter(index) {
+  document.getElementById("lb-counter").textContent = `${index + 1} / ${lbPhotos.length}`;
+}
+
+function closeLightbox() {
+  document.getElementById("lightbox").hidden = true;
+}
+window.closeLightbox = closeLightbox;
+
+document.addEventListener("keydown", e => {
+  if (document.getElementById("lightbox").hidden) return;
+  if (e.key === "Escape") closeLightbox();
+  if (e.key === "ArrowLeft") lightboxStep(-1);
+  if (e.key === "ArrowRight") lightboxStep(1);
+});
 
 async function react(id, reaction) {
   await api("/api/react", { method: "POST", body: JSON.stringify({ listing_id: id, reaction }) });
