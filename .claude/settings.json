@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(uv add \"python-telegram-bot>=21\" httpx \"pydantic-settings\" jinja2 python-multipart)"
+    ]
+  }
+}

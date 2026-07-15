@@ -1,0 +1,18 @@
+[Unit]
+Description=Escra — OLX Lviv scraper + Telegram Web App
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Adjust to the deploy user and clone path on the droplet.
+User=escra
+WorkingDirectory=/opt/escra
+EnvironmentFile=/opt/escra/.env
+# uv creates .venv on `uv sync`. Point straight at the venv interpreter.
+ExecStart=/opt/escra/.venv/bin/python -m app.main
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

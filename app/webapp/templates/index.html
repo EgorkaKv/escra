@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Escra — квартири Львів</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    :root { color-scheme: light dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: -apple-system, system-ui, sans-serif;
+      background: var(--tg-theme-bg-color, #fff); color: var(--tg-theme-text-color, #111);
+    }
+    header { position: sticky; top: 0; background: inherit; padding: 8px; z-index: 5; }
+    .tabs { display: flex; gap: 6px; }
+    .tabs button {
+      flex: 1; padding: 10px 4px; border: none; border-radius: 10px; font-size: 14px;
+      background: var(--tg-theme-secondary-bg-color, #eee); color: inherit; cursor: pointer;
+    }
+    .tabs button.active { background: var(--tg-theme-button-color, #3390ec); color: #fff; }
+    main { padding: 8px; }
+    .card {
+      border: 1px solid rgba(128,128,128,.25); border-radius: 14px; overflow: hidden;
+      margin-bottom: 14px;
+    }
+    .photos { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; }
+    .photos img { height: 200px; scroll-snap-align: start; flex: 0 0 auto; object-fit: cover; }
+    .body { padding: 10px 12px; }
+    .price { font-size: 18px; font-weight: 700; }
+    .title { margin: 4px 0; }
+    .meta { font-size: 13px; opacity: .8; }
+    .badges { margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; }
+    .badge { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: rgba(128,128,128,.2); }
+    .actions { display: flex; gap: 8px; margin-top: 10px; }
+    .actions a, .actions button {
+      flex: 1; text-align: center; padding: 9px; border-radius: 10px; border: none;
+      font-size: 14px; cursor: pointer; text-decoration: none; color: inherit;
+      background: var(--tg-theme-secondary-bg-color, #eee);
+    }
+    .actions .like { background: #2ea44f; color: #fff; }
+    .actions .hide { background: #b62324; color: #fff; }
+    .empty { text-align: center; opacity: .6; margin-top: 40px; }
+    form.settings { display: grid; gap: 12px; max-width: 400px; }
+    form.settings label { display: grid; gap: 4px; font-size: 14px; }
+    form.settings input, form.settings select {
+      padding: 9px; border-radius: 10px; border: 1px solid rgba(128,128,128,.4);
+      background: var(--tg-theme-bg-color, #fff); color: inherit;
+    }
+    form.settings button {
+      padding: 11px; border: none; border-radius: 10px;
+      background: var(--tg-theme-button-color, #3390ec); color: #fff; font-size: 15px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="tabs">
+      <button data-tab="new" class="active">Нові</button>
+      <button data-tab="liked">Подобається</button>
+      <button data-tab="hidden">Сховані</button>
+      <button data-tab="settings">⚙️</button>
+    </div>
+  </header>
+  <main id="content"><div class="empty">Завантаження…</div></main>
+
+<script>
+const tg = window.Telegram?.WebApp;
+tg?.ready(); tg?.expand();
+const INIT = tg?.initData || "";
+const myId = tg?.initDataUnsafe?.user?.id;
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, {
+    ...opts,
+    headers: { "Content-Type": "application/json", "X-Telegram-Init-Data": INIT, ...(opts.headers||{}) },
+  });
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  return res.json();
+}
+
+const esc = s => (s||"").replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const EMOJI = { like: "👍", hide: "🙈" };
+
+function partnerBadge(item) {
+  if (!item.partner_reactions?.length) return "";
+  return item.partner_reactions
+    .map(r => `<span class="badge">${EMOJI[r.reaction]||"?"} партнер</span>`).join("");
+}
+
+function cardHTML(item) {
+  const photos = (item.image_urls||[]).map(u => `<img src="${esc(u)}" loading="lazy">`).join("");
+  const meta = [
+    item.rooms ? item.rooms + " кімн." : null,
+    item.area ? Math.round(item.area) + " м²" : null,
+    (item.floor !== null && item.floor !== undefined) ? "поверх " + item.floor : null,
+  ].filter(Boolean).join(" · ");
+  const owner = item.is_business ? "🏢 Агенція" : "👤 Власник";
+  return `<div class="card">
+    ${photos ? `<div class="photos">${photos}</div>` : ""}
+    <div class="body">
+      <div class="price">${item.price_value||"?"} ${esc(item.price_currency||"")}</div>
+      <div class="title">${esc(item.title||"")}</div>
+      <div class="meta">${item.district ? "📍 "+esc(item.district)+" · " : ""}${meta}</div>
+      <div class="badges"><span class="badge">${owner}</span>${partnerBadge(item)}</div>
+      <div class="actions">
+        <a href="${esc(item.url||"#")}" target="_blank">Відкрити</a>
+        <button class="like" onclick="react(${item.id},'like')">Подобається</button>
+        <button class="hide" onclick="react(${item.id},'hide')">Сховати</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+async function react(id, reaction) {
+  await api("/api/react", { method: "POST", body: JSON.stringify({ listing_id: id, reaction }) });
+  loadTab(currentTab);
+}
+window.react = react;
+
+let currentTab = "new";
+
+async function loadTab(tab) {
+  currentTab = tab;
+  const el = document.getElementById("content");
+  if (tab === "settings") return loadSettings();
+  el.innerHTML = `<div class="empty">Завантаження…</div>`;
+  try {
+    const data = await api(`/api/listings?tab=${tab}`);
+    el.innerHTML = data.items.length
+      ? data.items.map(cardHTML).join("")
+      : `<div class="empty">Порожньо</div>`;
+  } catch (e) {
+    el.innerHTML = `<div class="empty">Помилка: ${esc(e.message)}</div>`;
+  }
+}
+
+async function loadSettings() {
+  const el = document.getElementById("content");
+  const c = await api("/api/criteria");
+  el.innerHTML = `<form class="settings" onsubmit="saveSettings(event)">
+    <label>Кімнат від<input name="rooms_min" type="number" value="${c.rooms_min ?? ""}"></label>
+    <label>Кімнат до<input name="rooms_max" type="number" value="${c.rooms_max ?? ""}"></label>
+    <label>Макс. ціна<input name="price_max" type="number" value="${c.price_max ?? ""}"></label>
+    <label>Валюта
+      <select name="price_currency">
+        <option ${c.price_currency==="UAH"?"selected":""}>UAH</option>
+        <option ${c.price_currency==="USD"?"selected":""}>USD</option>
+        <option ${c.price_currency==="EUR"?"selected":""}>EUR</option>
+      </select>
+    </label>
+    <label>Не перший поверх
+      <select name="exclude_first_floor">
+        <option value="1" ${c.exclude_first_floor?"selected":""}>Так</option>
+        <option value="0" ${!c.exclude_first_floor?"selected":""}>Ні</option>
+      </select>
+    </label>
+    <button type="submit">Зберегти</button>
+  </form>`;
+}
+
+async function saveSettings(ev) {
+  ev.preventDefault();
+  const f = ev.target;
+  const body = {
+    rooms_min: +f.rooms_min.value, rooms_max: +f.rooms_max.value,
+    price_max: +f.price_max.value, price_currency: f.price_currency.value,
+    exclude_first_floor: +f.exclude_first_floor.value,
+  };
+  await api("/api/criteria", { method: "POST", body: JSON.stringify(body) });
+  tg?.showAlert?.("Збережено");
+}
+window.saveSettings = saveSettings;
+
+document.querySelectorAll(".tabs button").forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll(".tabs button").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    loadTab(btn.dataset.tab);
+  };
+});
+
+loadTab("new");
+</script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+# Caddy config for the Escra web app. Caddy fetches and renews a Let's Encrypt
+# TLS cert automatically for the domain below, and reverse-proxies to uvicorn.
+#
+# Install:  sudo cp deploy/Caddyfile /etc/caddy/Caddyfile && sudo systemctl reload caddy
+# Replace escra.example.com with your real domain (DNS A record -> droplet IP).
+
+escra.example.com {
+    reverse_proxy 127.0.0.1:8000
+}
